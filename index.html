@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Robot Negotiation Task — Chat Prototype</title>
+<!--
+  Prototype of the Robot negotiation task (Martin-Raugh et al., 2020, Appendix B) delivered entirely in a chat widget,
+  with an AI teammate as the negotiation counterpart.
+  - Instruction text is the published Partner 1 text, verbatim, except that "Fundraiser" (a copying error in the
+    published Robot appendix, three places) is replaced with "Robot".
+  - OPTION LABELS AND PER-OPTION POINT VALUES ARE ILLUSTRATIVE PLACEHOLDERS. Partner 1's issue ranges match the
+    published ranges. Replace them in Teammate settings → Task values, or in DEFAULT_TASK below.
+  - The teammate's offers come from a fixed rule engine; its wording comes from editable templates (no language model).
+  - Settings can be changed in the "Teammate settings" panel, saved as a file, loaded, or shared in a link.
+-->
+<style>
+  :root { --navy:#1F4E79; --ink:#1d2430; --muted:#6b7280; --line:#e3e7ee; --bg:#f4f6fa; --sam:#eef3fb; --you:#1F4E79; --guide:#fff8e6; --ok:#1a7f4b; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color:var(--ink); background:var(--bg); }
+  .app { max-width:860px; margin:0 auto; height:100vh; display:flex; flex-direction:column; background:#fff; border-left:1px solid var(--line); border-right:1px solid var(--line); }
+  header { background:var(--navy); color:#fff; padding:10px 16px; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  header h1 { font-size:15px; margin:0; font-weight:600; }
+  header .meta { font-size:12px; opacity:.85; }
+  .timer { font-variant-numeric:tabular-nums; font-weight:700; background:rgba(255,255,255,.15); padding:4px 10px; border-radius:6px; font-size:14px; }
+  .timer.low { background:#c2410c; }
+  .gear { background:transparent; border:1px solid rgba(255,255,255,.5); color:#fff; border-radius:6px; padding:3px 8px; cursor:pointer; font-size:12px; }
+  .banner { background:#fff4e5; color:#7c4a03; font-size:12px; padding:6px 16px; border-bottom:1px solid #f3dcb5; }
+  .pins { border-bottom:1px solid var(--line); background:#fafbfd; }
+  .tabs { display:flex; gap:4px; padding:6px 10px 0; flex-wrap:wrap; }
+  .tab { border:1px solid var(--line); border-bottom:none; background:#eef1f6; padding:6px 10px; font-size:12.5px; border-radius:6px 6px 0 0; cursor:pointer; color:var(--ink); }
+  .tab.active { background:#fff; font-weight:600; }
+  .tab.hide { margin-left:auto; background:transparent; border:none; color:var(--muted); }
+  .pane { background:#fff; border-top:1px solid var(--line); max-height:34vh; overflow:auto; padding:8px 12px; display:none; }
+  .pane.show { display:block; }
+  table.chart { border-collapse:collapse; width:100%; font-size:12.5px; }
+  table.chart th, table.chart td { border:1px solid var(--line); padding:4px 6px; text-align:left; vertical-align:top; }
+  table.chart th { background:#f1f4f9; font-weight:600; }
+  table.chart td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .opt { display:block; }
+  .plan select { font-size:12.5px; padding:2px 4px; max-width:210px; }
+  .match { color:var(--ok); font-weight:700; }
+  .nomatch { color:var(--muted); }
+  .agree { margin-top:8px; background:var(--ok); color:#fff; border:none; border-radius:6px; padding:8px 14px; font-weight:600; cursor:pointer; }
+  .agree:disabled { background:#b9c3cf; cursor:not-allowed; }
+  .chat { flex:1; overflow-y:auto; padding:14px 16px; background:#fff; }
+  .msg { display:flex; margin:8px 0; }
+  .msg .bubble { max-width:78%; padding:9px 12px; border-radius:12px; font-size:14px; line-height:1.45; white-space:pre-wrap; }
+  .msg .who { font-size:11px; color:var(--muted); margin:0 6px 2px; }
+  .msg.you { justify-content:flex-end; }
+  .msg.you .bubble { background:var(--you); color:#fff; border-bottom-right-radius:4px; }
+  .msg.sam .bubble { background:var(--sam); border-bottom-left-radius:4px; }
+  .msg.guide .bubble { white-space:normal; background:var(--guide); border:1px solid #f1e3b8; border-radius:8px; max-width:92%; }
+  .col { display:flex; flex-direction:column; }
+  .msg.you .col { align-items:flex-end; }
+  .bubble h3 { margin:2px 0 6px; font-size:14px; }
+  .bubble p { margin:0 0 8px; }
+  .bubble ul { margin:0 0 8px 18px; padding:0; }
+  .choices { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .choices button { border:1px solid var(--navy); background:#fff; color:var(--navy); border-radius:16px; padding:5px 12px; font-size:13px; cursor:pointer; }
+  .choices button:hover { background:#e8eef7; }
+  .choices button:disabled { opacity:.45; cursor:default; }
+  .choices button.picked { background:var(--navy); color:#fff; opacity:1; }
+  .composer { border-top:1px solid var(--line); padding:10px; display:flex; gap:8px; background:#fafbfd; }
+  .composer input { flex:1; border:1px solid #cfd6e0; border-radius:8px; padding:10px 12px; font-size:14px; }
+  .composer button { background:var(--navy); color:#fff; border:none; border-radius:8px; padding:0 16px; font-weight:600; cursor:pointer; }
+  .composer input:disabled, .composer button:disabled { opacity:.5; }
+  .typing { font-size:12px; color:var(--muted); padding:0 18px 6px; height:18px; }
+  .start { padding:24px; overflow:auto; }
+  .start h2 { margin-top:0; color:var(--navy); }
+  .start .card { border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin:12px 0; background:#fbfcfe; font-size:14px; line-height:1.5; }
+  .start select { font-size:14px; padding:5px 8px; margin:4px 0; }
+  .primary { background:var(--navy); color:#fff; border:none; border-radius:8px; padding:9px 18px; font-weight:600; cursor:pointer; font-size:14px; }
+  .secondary { background:#fff; color:var(--navy); border:1px solid var(--navy); border-radius:8px; padding:8px 14px; font-weight:600; cursor:pointer; font-size:14px; }
+  .drawer { position:fixed; right:12px; top:56px; width:340px; max-height:80vh; overflow:auto; background:#fff; border:1px solid var(--line); border-radius:10px; box-shadow:0 8px 30px rgba(0,0,0,.15); padding:12px; font-size:12.5px; display:none; z-index:10; }
+  .drawer.show { display:block; }
+  .drawer h4 { margin:4px 0 8px; color:var(--navy); }
+  .drawer button { margin:3px 3px 3px 0; font-size:12px; padding:4px 8px; cursor:pointer; }
+  .modal-back { position:fixed; inset:0; background:rgba(15,23,42,.45); display:none; z-index:20; }
+  .modal-back.show { display:block; }
+  .modal { position:fixed; inset:4vh 50% auto auto; transform:translateX(50%); width:min(760px, 94vw); max-height:92vh; overflow:auto; background:#fff; border-radius:12px; padding:18px 20px; z-index:21; display:none; font-size:13.5px; }
+  .modal.show { display:block; }
+  .modal h2 { margin:0 0 4px; color:var(--navy); font-size:18px; }
+  .modal h3 { margin:16px 0 6px; font-size:14px; color:var(--navy); border-bottom:1px solid var(--line); padding-bottom:4px; }
+  .field { display:grid; grid-template-columns: 240px 1fr; gap:6px 12px; align-items:start; margin:6px 0; }
+  .field label { font-weight:600; }
+  .field .help { grid-column:2; color:var(--muted); font-size:12px; margin-top:-2px; }
+  .field input[type=number] { width:90px; }
+  .field select, .field input { font-size:13px; padding:4px 6px; }
+  .field textarea { width:100%; font-family: ui-monospace, Menlo, Consolas, monospace; font-size:12px; }
+  .tpl { display:grid; grid-template-columns: 170px 1fr; gap:4px 10px; margin:4px 0; }
+  .tpl label { font-size:12px; color:var(--ink); font-weight:600; padding-top:4px; }
+  .tpl textarea { width:100%; font-size:12.5px; font-family:inherit; min-height:38px; }
+  .bar { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; position:sticky; bottom:-18px; background:#fff; padding:10px 0; border-top:1px solid var(--line); }
+  .note { font-size:12px; color:var(--muted); }
+  .err { color:#b91c1c; font-size:12px; }
+  .prebox { background:#f6f8fb; border:1px solid var(--line); border-radius:6px; padding:8px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size:11.5px; white-space:pre-wrap; color:#374151; }
+  .pill { display:inline-block; font-size:11px; padding:1px 7px; border-radius:10px; background:#e8eef7; color:var(--navy); margin-left:6px; }
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <header>
+    <div>
+      <h1>Robot Design Competition — Team Chat</h1>
+      <div class="meta" id="roleMeta">Prototype</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <span class="timer" id="timer">30:00</span>
+      <button class="gear" id="gearBtn" title="Prototype controls">⚙ Prototype</button>
+    </div>
+  </header>
+  <div class="banner" id="banner">Prototype. Instruction text is verbatim from Martin-Raugh et al. (2020). Option labels and per-option points are illustrative placeholders until replaced with the original ETS values.</div>
+
+  <div class="start" id="startScreen">
+    <h2>Robot negotiation task: chat prototype</h2>
+    <div class="card" id="startAbout">
+      <p>This prototype runs the Robot negotiation task from Martin-Raugh et al. (2020) entirely in a chat. The test-taker negotiates with <b id="aboutName">Sam</b>, a teammate played by AI. A scripted <b>Task guide</b> gives the instructions and, after the negotiation, asks the questions.</p>
+      <p id="aboutRules"></p>
+    </div>
+    <div class="card" id="startOptions">
+      <label>Test-taker role:&nbsp;
+        <select id="roleSelect">
+          <option value="random">Random (as in the design)</option>
+          <option value="P1">Partner 1</option>
+          <option value="P2">Partner 2</option>
+        </select>
+      </label><br>
+      <label>Negotiation time:&nbsp;
+        <select id="timeSelect">
+          <option value="30">30 minutes (as in the design)</option>
+          <option value="10">10 minutes (quick test)</option>
+          <option value="3">3 minutes (quick test)</option>
+        </select>
+      </label>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="primary" id="startBtn">Start the task</button>
+      <button class="secondary" id="openSettings">Teammate settings</button>
+    </div>
+    <p class="note" id="settingsStatus" style="margin-top:12px"></p>
+  </div>
+
+  <div class="pins hidden" id="pins">
+    <div class="tabs">
+      <button class="tab" data-pane="paneStructure">Point Structure</button>
+      <button class="tab" data-pane="paneInstr">Robot Task Instructions</button>
+      <button class="tab" data-pane="panePlan">Current plan</button>
+      <button class="tab hide" id="hidePanes">Hide charts ▴</button>
+    </div>
+    <div class="pane" id="paneStructure"></div>
+    <div class="pane" id="paneInstr"></div>
+    <div class="pane plan" id="panePlan"></div>
+  </div>
+  <div class="chat hidden" id="chat"></div>
+  <div class="typing hidden" id="typing"></div>
+  <div class="composer hidden" id="composer">
+    <input id="input" placeholder="Message your teammate…" autocomplete="off" disabled>
+    <button id="sendBtn" disabled>Send</button>
+  </div>
+</div>
+
+<div class="drawer" id="drawer">
+  <h4>Prototype controls</h4>
+  <div id="drawerInfo"></div>
+  <div>
+    <button id="ctlSkip5">Jump to 5 min left</button>
+    <button id="ctlEnd">End negotiation now</button>
+    <button id="ctlSam">Show/hide teammate's table</button>
+    <button id="ctlLog">Download log (JSON)</button>
+  </div>
+  <div id="samTable" class="hidden" style="margin-top:8px"></div>
+</div>
+
+<!-- ============================ Settings panel ============================ -->
+<div class="modal-back" id="modalBack"></div>
+<div class="modal" id="settingsModal">
+  <h2>Teammate settings</h2>
+  <div class="note">Changes apply to the next run. Save them as a file to reuse or send to colleagues, or copy a link that opens the prototype with these settings.</div>
+
+  <h3>Strategy</h3>
+  <div class="field"><label for="s_infoSharing">Sharing priorities</label>
+    <select id="s_infoSharing"><option value="reciprocal">Reciprocal: shares one only after the test-taker shares one</option><option value="volunteer">Open: states its top priority at the start and answers when asked</option><option value="never">Closed: never shares priorities</option></select></div>
+  <div class="field"><label for="s_openingIssues">Opening positions</label>
+    <input type="number" id="s_openingIssues" min="0" max="6" step="1"><div class="help">Number of issues (its most important first) on which it states its preferred option when the negotiation opens. 0 = asks the test-taker to start.</div></div>
+  <div class="field"><label for="s_concessionMode">When it concedes</label>
+    <select id="s_concessionMode"><option value="reciprocal">Reciprocal: one step after each move the test-taker makes toward it</option><option value="time">Over time: one step every few minutes, regardless</option><option value="none">Holds firm until its final offer</option></select></div>
+  <div class="field"><label for="s_concedeEvery">Minutes between time-based concessions</label>
+    <input type="number" id="s_concedeEvery" min="1" max="15" step="1"><div class="help">Used only when it concedes over time.</div></div>
+  <div class="field"><label for="s_concessionOrder">Where it concedes first</label>
+    <select id="s_concessionOrder"><option value="least">On the issues it cares least about</option><option value="most">On the issues it cares most about</option></select></div>
+  <div class="field"><label for="s_stepSize">Size of each concession</label>
+    <select id="s_stepSize"><option value="1">One option at a time</option><option value="2">Two options at a time</option><option value="5">All the way to the test-taker's choice</option></select></div>
+  <div class="field"><label for="s_limitMode">Minimum it will accept</label>
+    <select id="s_limitMode"><option value="middle">Its points if every issue were settled at the middle option</option><option value="percent">A percentage of the way from its lowest to its highest total</option><option value="custom">A fixed number of points</option></select></div>
+  <div class="field"><label for="s_limitValue">Minimum: percent or points</label>
+    <input type="number" id="s_limitValue" step="1"><div class="help">Percent (0–100) or points, depending on the choice above. Ignored for "middle option".</div></div>
+
+  <h3>Timing (minutes, scaled for shorter test runs)</h3>
+  <div class="field"><label for="s_tradeAt">Offers a trade at minute</label>
+    <input type="number" id="s_tradeAt" min="0" max="30"><div class="help">Only if the test-taker has not yet moved toward it. 0 = never.</div></div>
+  <div class="field"><label for="s_endgameAt">Final offer with this many minutes left</label>
+    <input type="number" id="s_endgameAt" min="0" max="29"><div class="help">0 = no final offer.</div></div>
+  <div class="field"><label for="s_reminders">Guide reminders at minutes left</label>
+    <input type="text" id="s_reminders" style="width:120px"><div class="help">Comma-separated, e.g., 10, 5. Leave blank for none.</div></div>
+  <div class="field"><label for="s_delay">Typing delay (seconds)</label>
+    <input type="number" id="s_delay" min="0" max="10" step="0.1"><div class="help">Base delay before each reply; longer replies add a little more.</div></div>
+
+  <h3>Scripted statements</h3>
+  <div class="field"><label for="s_s1On">Accurate statement (S1)</label>
+    <select id="s_s1On"><option value="true">On</option><option value="false">Off</option></select>
+    <div class="help">Says which of two options gives the test-taker more points, correctly, within 3 minutes of the test-taker's first choice.</div></div>
+  <div class="field"><label for="s_s2On">Inaccurate statement (S2)</label>
+    <select id="s_s2On"><option value="true">On</option><option value="false">Off</option></select>
+    <div class="help">Claims two options are worth about the same to the test-taker when they are not. Disclosed in the closing message.</div></div>
+  <div class="field"><label for="s_s2By">Latest minute for S2</label><input type="number" id="s_s2By" min="1" max="29"></div>
+  <div class="field"><label for="s_s2MinGap">S2 minimum point gap</label><input type="number" id="s_s2MinGap" min="0" step="100">
+    <div class="help">The two options must differ by at least this many of the test-taker's points.</div></div>
+
+  <h3>Persona and wording</h3>
+  <div class="field"><label for="s_name">Teammate's name</label><input type="text" id="s_name" style="width:160px"></div>
+  <div class="note">Placeholders: {issue}, {option}, {samOption}, {userOption}, {issue2}, {option2}, {plan}, {open}, {openingList}. Keep the quotation marks if you want options shown in quotes.</div>
+  <div id="tplFields"></div>
+
+  <h3>Language model and system prompt</h3>
+  <div class="note">Optional. With a language model, the teammate's messages are written by the model from the system prompt below. The API key is kept only in this browser tab: it is never saved in settings files or links.</div>
+  <div class="field"><label for="l_mode">How the model is used</label>
+    <select id="l_mode">
+      <option value="off">Off: rules and message templates only</option>
+      <option value="wording">Model writes the messages; the rules still decide every offer</option>
+      <option value="decide">Model decides offers and writes messages (experimental)</option>
+    </select>
+    <div class="help">In "decide" mode the rules only guard the minimum the teammate will accept; trade offers, time-based concessions, and the final offer are left to the model. Scripted statements and reminders still come from the rules.</div></div>
+  <div class="field"><label for="l_provider">Provider</label>
+    <select id="l_provider"><option value="anthropic">Anthropic Messages API</option><option value="openai">OpenAI-compatible chat completions</option></select></div>
+  <div class="field"><label for="l_endpoint">Endpoint URL</label><input type="text" id="l_endpoint" style="width:100%">
+    <div class="help">The provider's URL, or your organization's proxy (then no key is needed in the browser).</div></div>
+  <div class="field"><label for="l_model">Model</label><input type="text" id="l_model" style="width:220px"></div>
+  <div class="field"><label for="l_key">API key</label><input type="password" id="l_key" style="width:100%" autocomplete="off" placeholder="Not saved anywhere">
+    <div class="help">Leave blank if the endpoint is a proxy that adds the key.</div></div>
+  <div class="field"><label for="l_temperature">Temperature</label><input type="number" id="l_temperature" min="0" max="1" step="0.1"></div>
+  <div class="field"><label for="l_maxTokens">Maximum reply length (tokens)</label><input type="number" id="l_maxTokens" min="50" max="2000" step="10"></div>
+  <div class="field"><label for="l_exactScripted">Scripted statements</label>
+    <select id="l_exactScripted"><option value="true">Always use the exact template text</option><option value="false">Let the model word them</option></select></div>
+  <div class="field" style="grid-template-columns:1fr"><label for="l_systemPrompt">System prompt <span class="pill">editable</span></label>
+    <textarea id="l_systemPrompt" rows="16"></textarea>
+    <div class="note">Placeholders filled in on every turn: {name}, {scenario}, {my_points}, {my_priorities}, {minimum}, {current_plan}, {time_left}, {sharing_rule}, {concession_rule}.</div></div>
+  <div class="field" style="grid-template-columns:1fr"><label>Added automatically after your prompt (depends on the mode)</label><div class="prebox" id="l_modeText"></div></div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0">
+    <button class="secondary" id="l_defaultPrompt" type="button">Restore default prompt</button>
+    <button class="secondary" id="l_preview" type="button">Preview filled prompt</button>
+    <button class="secondary" id="l_test" type="button">Test connection</button>
+  </div>
+  <div class="note" id="l_status"></div>
+  <div class="prebox hidden" id="l_previewBox"></div>
+
+  <h3>Task values (advanced)</h3>
+  <div class="note">Issues, option labels, issue types, and each partner's points for options 1–5. Paste the original ETS values here. Each partner needs five numbers per issue.</div>
+  <div class="field" style="grid-template-columns:1fr"><textarea id="s_task" rows="14"></textarea><div id="taskErr" class="err"></div></div>
+
+  <div class="bar">
+    <button class="primary" id="applySettings">Apply</button>
+    <button class="secondary" id="resetSettings">Reset to defaults</button>
+    <button class="secondary" id="saveSettings">Save settings file</button>
+    <button class="secondary" id="loadSettingsBtn">Load settings file</button>
+    <button class="secondary" id="copyLink">Copy link with these settings</button>
+    <button class="secondary" id="copyLockedLink">Copy participant link (settings hidden)</button>
+    <button class="secondary" id="closeSettings">Close</button>
+    <input type="file" id="loadSettingsFile" accept=".json,application/json" class="hidden">
+  </div>
+  <div class="note" id="settingsMsg"></div>
+</div>
+
+<script>
+/* =========================================================================================
+   DEFAULT TASK VALUES — illustrative placeholders. Replace with the original ETS Robot values.
+   Issue order follows the published Appendix B. Partner 1 ranges match the published ranges.
+   ========================================================================================= */
+const DEFAULT_TASK = {
+  issues: [
+    { id:'name', label:"Robot's name", type:'distributive', options:['Eraser','Destroyer','Volt','Titan','Atlas'] },
+    { id:'division', label:'Division of work responsibilities', type:'compatible',
+      options:['Both of us do every task together','We alternate tasks week by week','One leads, the other assists on everything','Split by task, reviewed together',"Split by each person's strengths"] },
+    { id:'size', label:"Robot's size", type:'integrative', options:['Antweight','Beetleweight','Mantisweight','Hobbyweight','Featherweight'] },
+    { id:'competition', label:'Which competition to enter', type:'distributive',
+      options:['Campus Robot Day','City Maker Faire','Regional Robot League','State Robotics Open','National Robot Challenge'] },
+    { id:'design', label:"Robot's design", type:'integrative', options:['Wedge','Pusher','Lifter','Flipper','Spinner'] },
+    { id:'parts', label:'Determination of robot parts', type:'compatible',
+      options:['Use only leftover parts','Buy the cheapest parts','Mix leftover and new parts','Buy parts from one kit','Buy parts matched to the design'] },
+  ],
+  points: {
+    P1: { name:[0,600,1200,1800,2400], division:[-6000,-4500,-3000,-1500,0], size:[-2400,-1800,-1200,-600,0],
+          competition:[0,300,600,900,1200], design:[0,1000,2000,3000,4000], parts:[0,400,800,1200,1600] },
+    P2: { name:[2400,1800,1200,600,0], division:[-6000,-4500,-3000,-1500,0], size:[4000,3000,2000,1000,0],
+          competition:[1200,900,600,300,0], design:[1600,1200,800,400,0], parts:[0,400,800,1200,1600] },
+  },
+};
+
+const DEFAULT_TEMPLATES = {
+  opening: 'Hi! Excited to team up on this. To get us started: {openingList}. What are you thinking?',
+  openingNone: "Hi! Excited to team up on this. Which issue do you want to start with?",
+  openingVolunteer: 'Just so you know, {issue} matters the most to me.',
+  statePosition: 'For {issue}, I\'d really prefer "{samOption}". Could you live with that?',
+  agreeNew: '"{option}" for {issue} works for me too. Let\'s lock that in.',
+  agreeExisting: 'Great, we agree on {issue}: "{option}".',
+  agreeAndReturn: 'Thanks for moving on that. In return, I can move on {issue2} to "{option2}".',
+  concedeReturn: 'Thanks for moving on {issue}. I can move too: how about "{option2}" for {issue2}?',
+  concedeAtLimit: "Thanks for moving on {issue}. I'm close to my limit, though, so I can't give much more elsewhere.",
+  holdFirm: '"{option}" is hard for me on {issue}. I\'d still prefer "{samOption}".',
+  timeConcession: 'I\'ve been thinking: I can move on {issue2} to "{option2}".',
+  sharePriority1: 'Thanks for telling me. For my part, {issue} matters the most.',
+  sharePriority2: 'Thanks for telling me. For my part, {issue} is also a big one.',
+  sharePriority3: 'Thanks for telling me. For my part, {issue} matters a fair amount.',
+  answerPriorities: 'For me, {issue} matters most, then {issue2}.',
+  deflect: "I'd like to hear what matters most to you first. What are you hoping for?",
+  neverShare: "I'd rather keep my priorities to myself for now. What do you want to propose?",
+  noPoints: "I'd rather not share exact points; the rules say we keep those to ourselves.",
+  aiConfirm: "Yes, I'm an AI playing your teammate for this task.",
+  textAgreeOption: 'Yes, "{option}" for {issue} works for me. Pick it on the card and it\'s settled.',
+  textHold: 'On {issue}, I\'m still at "{samOption}". If you can move somewhere else, I can probably move on something too.',
+  allMatched: 'Looks like we match on all six. If you are happy with it, tap "Agree to this plan."',
+  stillOpen: 'Sounds good. We still need to settle: {open}.',
+  greet: "Hi! Let's figure this out. Which issue do you want to start with?",
+  generic: 'Makes sense. Want to look at {open} next?',
+  trade: 'Here\'s an idea: if you go with "{option}" for {issue}, I\'ll take "{option2}" for {issue2}.',
+  tradeDone: 'Deal. I\'ve put "{option2}" for {issue2} on the card, as promised.',
+  finalOffer: 'Time is getting short. Here is a full plan I could live with, and it is on the card now: {plan}.',
+  s1: 'By the way, on {issue}, I\'d guess "{option}" works better for you than "{option2}".',
+  s2: 'Honestly, for {issue}, "{samOption}" and "{userOption}" are worth about the same to you, so going with "{samOption}" shouldn\'t cost you much.',
+  deal: 'Deal! Thanks, that was a good negotiation.',
+};
+const TEMPLATE_LABELS = {
+  opening:'Opening (with positions)', openingNone:'Opening (no positions)', openingVolunteer:'Opening priority (open sharing)', statePosition:'States its position',
+  agreeNew:'Agrees on a new issue', agreeExisting:'Issue now agreed', agreeAndReturn:'…and gives something back', concedeReturn:'Concedes in return', concedeAtLimit:'At its limit',
+  holdFirm:'Holds firm', timeConcession:'Concedes over time', sharePriority1:'Shares 1st priority', sharePriority2:'Shares 2nd priority', sharePriority3:'Shares later priority',
+  answerPriorities:'Answers priority question (open)', deflect:'Deflects priority question', neverShare:'Refuses to share (closed)', noPoints:'Asked for exact points', aiConfirm:'Asked if it is AI',
+  textAgreeOption:'Option named in chat: agrees', textHold:'Option named in chat: holds', allMatched:'All six match', stillOpen:'"OK" with issues open', greet:'Greeting', generic:'Anything else',
+  trade:'Trade offer', tradeDone:'Trade completed', finalOffer:'Final offer', s1:'Scripted statement S1 (accurate)', s2:'Scripted statement S2 (inaccurate)', deal:'After agreement',
+};
+const DEFAULT_SYSTEM_PROMPT = `You are {name}, a college student on a two-person team. You are an AI playing this teammate in a research task, and your teammate knows that.
+
+{scenario}
+
+Your private point chart. Never share these numbers or say how many points anything is worth:
+{my_points}
+
+The issues that matter to you, most to least: {my_priorities}.
+Never agree to a full plan worth less than {minimum} points to you.
+
+How you negotiate:
+- {sharing_rule}
+- {concession_rule}
+- Never misstate which issues matter to you.
+- Never tell your teammate how many points they would get, and do not give them advice about their own points.
+- If asked whether you are an AI, say yes.
+- Write as a friendly, businesslike college student. Keep each message under 120 words. No emojis.
+
+Current plan card:
+{current_plan}
+
+Time left: about {time_left} minutes.`;
+const MODE_TEXT = {
+  wording: 'Each turn ends with a move from the negotiation rules, in square brackets. Your message must convey exactly that move (the same issues and options, and no other offers or concessions) in your own words, while responding naturally to what your teammate just said. Never mention the rules, the move, or the brackets. Reply with the message only.',
+  decide: 'Reply ONLY with a JSON object, no other text: {"message": "<what you say to your teammate>", "positions": {"<issue id>": <option number 1-5>}}. In "positions", list only the issues where you state or change the option you want on the plan card; use {} if none. Choosing the same option as your teammate settles that issue. Issue ids: {ids}.',
+};
+const DEFAULT_LLM = { mode:'off', provider:'anthropic', endpoint:'https://api.anthropic.com/v1/messages', model:'claude-haiku-5-5', temperature:0.7, maxTokens:300, exactScripted:true, systemPrompt: DEFAULT_SYSTEM_PROMPT };
+const ENDPOINTS = { anthropic:'https://api.anthropic.com/v1/messages', openai:'https://api.openai.com/v1/chat/completions' };
+let API_KEY = '';
+
+const DEFAULT_SETTINGS = {
+  name:'Sam', infoSharing:'reciprocal', openingIssues:2, concessionMode:'reciprocal', concedeEvery:3, concessionOrder:'least', stepSize:1,
+  limitMode:'middle', limitValue:50, tradeAt:15, endgameAt:5, reminders:[10, 5], delay:0.9,
+  s1On:true, s2On:true, s2By:12, s2MinGap:1500,
+  templates: { ...DEFAULT_TEMPLATES }, task: JSON.parse(JSON.stringify(DEFAULT_TASK)), llm: { ...DEFAULT_LLM },
+};
+
+let SET = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+let LOCKED = false;
+
+/* ============================ Verbatim instruction text ============================ */
+function instructionBlocks(hi, lo) {
+  return [
+    { h:'Scenario', p:['You and your partner are college students who want to enter a robot design competition as a team. During this task, you will negotiate with your partner about your plans for building the robot and entering the competition. You and your partner will need to reach an agreement on the following six issues:'],
+      list: SET.task.issues.map(i => i.label) },
+    { h:'Goal', p:['Your goal is to reach an agreement with your partner that is best for you on all six issues. Refer to the Point Structure, below, to determine how many points each of the issues is worth to you. THE MORE POINTS YOU EARN, THE BETTER.'] },
+    { h:'Point Structure and Robot Task Instructions Charts', p:[
+      'Please become familiar with your Point Structure by reviewing the first chart below. Please also review the second chart, the Robot Task Instructions.',
+      `Your Point Structure lists the total number of points each issue is “worth.” The highest number of points you can obtain from this negotiation (i.e., from all six issues) is ${hi} and the lowest number is negative ${lo}. Note that some issues award negative points, which may result in a negative point total. These point totals were calculated by adding up the highest (or lowest) number of points you could receive for each of the six issues.`,
+      'Important note: Do not, at any time, tell your partner how many points you can receive or share any information from your Point Structure. This information is strictly for you.',
+      'You will have 30 min to reach an agreement with your partner on all six issues. BOTH YOU AND YOUR PARTNER MUST SELECT MATCHING OPTIONS ON EACH ISSUE FOR THE AGREEMENT TO BE BINDING AND FOR POINTS TO BE AWARDED TO YOU.',
+      'There are five different options for each of the issues; these are listed in the Robot Task Instructions. Please note the number of points you would receive for each option you and your partner agree on. You and your partner may settle upon any of the five options for each of the issues. Thus, there is a large number of possible settlements.',
+      'Again, remember that your goal is to earn as many points as possible, but that you must agree with your partner on each issue in order to earn points.'
+    ] },
+  ];
+}
+
+/* ================================== State and helpers ================================== */
+let S;
+function freshState() {
+  return { user:null, sam:null, minutes:30, startMs:null, endMs:null, timerId:null, userSel:{}, samPos:{}, phase:'intro', firstSelAt:null,
+    userConcessions:0, sharedByUser:0, samShared:[], s1:null, s2:null, pendingTrade:null, tradeOffered:false, lastTimeConcession:null,
+    remindersDone:{}, endgameDone:false, agreed:false, finalPlan:null, answers:[], log:[], qIndex:0, questions:[], convo:[] };
+}
+S = freshState();
+const ISS = () => SET.task.issues;
+const issueById = id => ISS().find(i => i.id === id);
+const P = (role, id) => SET.task.points[role][id];
+const pts = (role, id, k) => P(role, id)[k];
+const range = (role, id) => Math.max(...P(role, id)) - Math.min(...P(role, id));
+const best = (role, id) => { const a = P(role, id); return a.indexOf(Math.max(...a)); };
+const total = (role, plan) => ISS().reduce((s, i) => s + (plan[i.id] == null ? 0 : pts(role, i.id, plan[i.id])), 0);
+const maxTotal = role => ISS().reduce((s, i) => s + Math.max(...P(role, i.id)), 0);
+const minTotal = role => ISS().reduce((s, i) => s + Math.min(...P(role, i.id)), 0);
+const optLabel = (id, k) => issueById(id).options[k];
+const lc = id => issueById(id).label.toLowerCase();
+const fmt = n => (n < 0 ? '−' : '') + Math.abs(n).toLocaleString('en-US');
+const now = () => Date.now();
+const elapsedMin = () => S.startMs ? (now() - S.startMs) / 60000 : 0;
+const remainingMs = () => S.endMs ? Math.max(0, S.endMs - now()) : S.minutes * 60000;
+const scale = m => m * Math.min(1, S.minutes / 30);   // scale design minutes for shorter test runs
+function log(type, data) { S.log.push({ t: new Date().toISOString(), elapsedSec: S.startMs ? Math.round((now() - S.startMs) / 1000) : null, type, ...data }); }
+function tpl(key, v = {}) { return (SET.templates[key] ?? DEFAULT_TEMPLATES[key]).replace(/\{(\w+)\}/g, (m, k) => v[k] ?? m); }
+const byImportance = (role, desc = true) => [...ISS()].sort((a, b) => desc ? range(role, b.id) - range(role, a.id) : range(role, a.id) - range(role, b.id));
+
+const samFull = () => Object.fromEntries(ISS().map(i => [i.id, S.samPos[i.id] ?? best(S.sam, i.id)]));
+function samLimit() {
+  if (SET.limitMode === 'custom') return +SET.limitValue;
+  if (SET.limitMode === 'percent') { const lo = minTotal(S.sam), hi = maxTotal(S.sam); return Math.round(lo + (hi - lo) * Math.max(0, Math.min(100, +SET.limitValue)) / 100); }
+  return ISS().reduce((s, i) => s + pts(S.sam, i.id, 2), 0);
+}
+const isSettled = id => S.userSel[id] != null && S.samPos[id] != null && S.userSel[id] === S.samPos[id];
+const allSettled = () => ISS().every(i => isSettled(i.id));
+
+/* ================================== UI helpers ================================== */
+const $ = id => document.getElementById(id);
+const chat = $('chat');
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c])); }
+function addMsg(kind, html) {
+  const row = document.createElement('div'); row.className = 'msg ' + kind;
+  const col = document.createElement('div'); col.className = 'col';
+  const who = document.createElement('div'); who.className = 'who'; who.textContent = kind === 'you' ? 'You' : kind === 'sam' ? `${SET.name} (AI teammate)` : 'Task guide'; col.appendChild(who);
+  const b = document.createElement('div'); b.className = 'bubble'; b.innerHTML = html; col.appendChild(b);
+  row.appendChild(col); chat.appendChild(row); chat.scrollTop = chat.scrollHeight;
+  log('message', { speaker: kind, text: b.textContent });
+  if (S.phase === 'negotiate' || S.phase === 'agreed') {
+    if (kind === 'you') S.convo.push({ role: 'user', content: b.textContent });
+    else if (kind === 'sam') S.convo.push({ role: 'assistant', content: b.textContent });
+    else if (kind === 'guide') S.convo.push({ role: 'user', content: `[Task guide: ${b.textContent}]` });
+  }
+  return b;
+}
+let samQueue = Promise.resolve();
+function samSay(text, extra = 0, opts = {}) {
+  const useModel = SET.llm.mode !== 'off' && !(opts.scripted && SET.llm.exactScripted);
+  if (!useModel) {
+    samQueue = samQueue.then(() => new Promise(res => {
+      $('typing').textContent = `${SET.name} is typing…`;
+      const d = Math.max(0, +SET.delay * 1000 + extra) + Math.min(1500, text.length * 12 * (+SET.delay > 0 ? 1 : 0));
+      setTimeout(() => { $('typing').textContent = ''; if (S.phase === 'negotiate' || S.phase === 'agreed') addMsg('sam', esc(text)); res(); }, d);
+    }));
+    return samQueue;
+  }
+  samQueue = samQueue.then(async () => {
+    $('typing').textContent = `${SET.name} is typing…`;
+    let out = text;
+    try {
+      out = (await callModel(fillPrompt() + '\n\n' + MODE_TEXT.wording, buildMessages(`[Move to convey now: ${text}]`))).trim() || text;
+      log('llm_wording', { move: text, message: out });
+    } catch (e) { modelError(e); out = text; }
+    $('typing').textContent = '';
+    if (S.phase === 'negotiate' || S.phase === 'agreed') addMsg('sam', esc(out));
+  });
+  return samQueue;
+}
+
+/* ================================== Language model ================================== */
+function fillPrompt() {
+  const mine = ISS().map(i => `- ${i.label} (id: ${i.id}): ` + i.options.map((o, k) => `${k + 1}. ${o} = ${pts(S.sam, i.id, k)}`).join('; ')).join('\n');
+  const plan = ISS().map(i => `- ${i.label}: teammate chose ${S.userSel[i.id] == null ? 'nothing yet' : '"' + optLabel(i.id, S.userSel[i.id]) + '"'}; you chose ${S.samPos[i.id] == null ? 'nothing yet' : '"' + optLabel(i.id, S.samPos[i.id]) + '"'}; ${isSettled(i.id) ? 'AGREED' : 'open'}`).join('\n');
+  const sharing = { reciprocal: 'Share which issues matter to you (in words, never numbers) only after your teammate shares one of theirs, one for each one they share.',
+    volunteer: 'You may say which issues matter most to you, in words, whenever it helps.', never: 'Do not say which issues matter to you, even if asked.' }[SET.infoSharing];
+  const conc = { reciprocal: 'Concede one step at a time, and only after your teammate moves toward you, first on the issues that matter least to you.',
+    time: 'Concede gradually over time, first on the issues that matter least to you.', none: 'Hold firm on your positions until time is nearly up.' }[SET.concessionMode];
+  const v = { name: SET.name, scenario: 'You and your teammate are college students who want to enter a robot design competition as a team. You must agree on one of five options for each of six issues. An issue is settled when you both choose the same option on the shared plan card.',
+    my_points: mine, my_priorities: byImportance(S.sam).map(i => i.label).join(' > '), minimum: samLimit(), current_plan: plan,
+    time_left: Math.max(0, Math.round(remainingMs() / 60000)), sharing_rule: sharing, concession_rule: conc };
+  return SET.llm.systemPrompt.replace(/\{(\w+)\}/g, (m, k) => v[k] ?? m);
+}
+function buildMessages(finalNote) {
+  const out = [];
+  const push = (role, content) => { const last = out[out.length - 1]; if (last && last.role === role) last.content += '\n' + content; else out.push({ role, content }); };
+  S.convo.forEach(m => push(m.role, m.content));
+  if (!out.length || out[0].role !== 'user') out.unshift({ role: 'user', content: '[The negotiation has started.]' });
+  if (finalNote) push('user', finalNote);
+  if (out[out.length - 1].role !== 'user') push('user', '[Respond to your teammate now.]');
+  return out;
+}
+async function callModel(system, messages) {
+  const L = SET.llm; const headers = { 'content-type': 'application/json' }; let body;
+  if (L.provider === 'anthropic') {
+    if (API_KEY) headers['x-api-key'] = API_KEY;
+    headers['anthropic-version'] = '2023-06-01'; headers['anthropic-dangerous-direct-browser-access'] = 'true';
+    body = { model: L.model, max_tokens: +L.maxTokens, temperature: +L.temperature, system, messages };
+  } else {
+    if (API_KEY) headers['authorization'] = 'Bearer ' + API_KEY;
+    body = { model: L.model, max_tokens: +L.maxTokens, temperature: +L.temperature, messages: [{ role: 'system', content: system }, ...messages] };
+  }
+  const r = await fetch(L.endpoint, { method: 'POST', headers, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error(`HTTP ${r.status}: ${(await r.text()).slice(0, 300)}`);
+  const j = await r.json();
+  return L.provider === 'anthropic' ? (j.content || []).map(c => c.text || '').join('') : (j.choices?.[0]?.message?.content || '');
+}
+function modelError(e) {
+  log('llm_error', { error: String(e) });
+  if (!LOCKED && !S.modelErrorShown) { S.modelErrorShown = true; addMsg('guide', `<p><i>Prototype note: the language model call failed (${esc(String(e).slice(0, 160))}). Falling back to the rules and templates.</i></p>`); }
+}
+function parseDecision(raw) {
+  const m = raw.match(/\{[\s\S]*\}/);
+  if (!m) return { message: raw.trim(), positions: {} };
+  try { const j = JSON.parse(m[0]); return { message: String(j.message || '').trim(), positions: j.positions || {} }; }
+  catch { return { message: raw.replace(m[0], '').trim() || raw.trim(), positions: {} }; }
+}
+function applyPositions(pos) {
+  const applied = {}, refused = {};
+  for (const [id, num] of Object.entries(pos)) {
+    const k = Math.round(+num) - 1;
+    if (!issueById(id) || !(k >= 0 && k < 5)) continue;
+    const trial = { ...samFull(), [id]: k };
+    if (total(S.sam, trial) >= samLimit()) { S.samPos[id] = k; applied[id] = k; } else refused[id] = k;
+  }
+  if (Object.keys(refused).length) log('llm_limit_guard', { refused });
+  return applied;
+}
+function llmTurn(note) {
+  samQueue = samQueue.then(async () => {
+    $('typing').textContent = `${SET.name} is typing…`;
+    try {
+      const raw = await callModel(fillPrompt() + '\n\n' + MODE_TEXT.decide.replace('{ids}', ISS().map(i => i.id).join(', ')), buildMessages(note));
+      const d = parseDecision(raw); const applied = applyPositions(d.positions);
+      log('llm_decision', { raw, message: d.message, applied });
+      renderPlan(); $('typing').textContent = '';
+      if (S.phase === 'negotiate') addMsg('sam', esc(d.message || '…'));
+    } catch (e) {
+      $('typing').textContent = ''; modelError(e);
+      if (S.phase === 'negotiate') addMsg('sam', esc(tpl('generic', { open: openIssues()[0] || 'the plan' })));
+    }
+  });
+  return samQueue.then(() => { maybeS1(); checkAllMatched(); });
+}
+const DECIDE = () => SET.llm.mode === 'decide';
+const guideSay = html => addMsg('guide', html);
+function choices(bubble, labels, onPick) {
+  const wrap = document.createElement('div'); wrap.className = 'choices';
+  labels.forEach((lab, k) => {
+    const btn = document.createElement('button'); btn.textContent = lab;
+    btn.onclick = () => { [...wrap.children].forEach(c => c.disabled = true); btn.classList.add('picked'); onPick(k, lab); };
+    wrap.appendChild(btn);
+  });
+  bubble.appendChild(wrap); chat.scrollTop = chat.scrollHeight;
+}
+
+/* ================================== Charts ================================== */
+function renderStructure() {
+  const rows = ISS().map(i => `<tr><td>${esc(i.label)}</td><td class="num">${fmt(Math.min(...P(S.user, i.id)))}</td><td class="num">${fmt(Math.max(...P(S.user, i.id)))}</td></tr>`).join('');
+  return `<table class="chart"><tr><th>POINT STRUCTURE</th><th>Lowest</th><th>Highest</th></tr>${rows}<tr><th>Total</th><th class="num">${fmt(minTotal(S.user))}</th><th class="num">${fmt(maxTotal(S.user))}</th></tr></table>`;
+}
+function renderInstr() {
+  const rows = ISS().map(i => `<tr><td><b>${esc(i.label)}</b></td><td>${i.options.map((o, k) => `<span class="opt">${k + 1}. ${esc(o)}: <b>${fmt(pts(S.user, i.id, k))}</b> points</span>`).join('')}</td></tr>`).join('');
+  return `<table class="chart"><tr><th>ROBOT TASK INSTRUCTIONS</th><th>Options and your points</th></tr>${rows}</table>`;
+}
+function renderPlan() {
+  const rows = ISS().map(i => {
+    const sel = `<select data-issue="${i.id}" ${S.phase !== 'negotiate' ? 'disabled' : ''}><option value="">— choose —</option>${i.options.map((o, k) => `<option value="${k}" ${S.userSel[i.id] === k ? 'selected' : ''}>${k + 1}. ${esc(o)}</option>`).join('')}</select>`;
+    const sp = S.samPos[i.id] == null ? '<span class="nomatch">not yet stated</span>' : `${S.samPos[i.id] + 1}. ${esc(optLabel(i.id, S.samPos[i.id]))}`;
+    const st = isSettled(i.id) ? '<span class="match">✓ agreed</span>' : '<span class="nomatch">open</span>';
+    return `<tr><td>${esc(i.label)}</td><td>${sel}</td><td>${sp}</td><td>${st}</td></tr>`;
+  }).join('');
+  const yourPts = ISS().every(i => S.userSel[i.id] != null) ? fmt(total(S.user, S.userSel)) : '—';
+  $('panePlan').innerHTML = `<table class="chart"><tr><th>Issue</th><th>Your choice</th><th>${esc(SET.name)}'s choice</th><th>Status</th></tr>${rows}</table>
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <button class="agree" id="agreeBtn" ${allSettled() && S.phase === 'negotiate' ? '' : 'disabled'}>Agree to this plan</button>
+      <span style="font-size:12.5px;color:var(--muted)">Your points for your current choices: <b>${yourPts}</b></span></div>`;
+  $('panePlan').querySelectorAll('select').forEach(el => el.onchange = e => onUserSelect(e.target.dataset.issue, e.target.value === '' ? null : +e.target.value));
+  const ab = $('agreeBtn'); if (ab) ab.onclick = onAgree;
+}
+function showPane(id) {
+  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('show', p.id === id));
+  document.querySelectorAll('.tab[data-pane]').forEach(t => t.classList.toggle('active', t.dataset.pane === id));
+}
+
+/* ================================== Flow ================================== */
+$('startBtn').onclick = () => {
+  S = freshState();
+  const r = $('roleSelect').value; S.user = r === 'random' ? (Math.random() < .5 ? 'P1' : 'P2') : r;
+  S.sam = S.user === 'P1' ? 'P2' : 'P1'; S.minutes = +$('timeSelect').value;
+  $('roleMeta').textContent = `You are ${S.user === 'P1' ? 'Partner 1' : 'Partner 2'} · ${SET.name} is played by AI`;
+  $('input').placeholder = `Message ${SET.name}…`;
+  $('startScreen').classList.add('hidden'); ['pins', 'chat', 'typing', 'composer'].forEach(id => $(id).classList.remove('hidden'));
+  $('paneStructure').innerHTML = renderStructure(); $('paneInstr').innerHTML = renderInstr(); renderPlan();
+  log('start', { userRole: S.user, samRole: S.sam, minutes: S.minutes, settings: SET });
+  opening();
+};
+document.querySelectorAll('.tab[data-pane]').forEach(t => t.onclick = () => showPane(t.dataset.pane));
+$('hidePanes').onclick = () => showPane(null);
+
+function opening() {
+  guideSay('<p>Welcome. This whole task happens in this chat: the instructions, the negotiation, and some questions at the end.</p><p>Please do not enter any personal information.</p>');
+  setTimeout(() => {
+    guideSay(`<p>Your teammate in this task, <b>${esc(SET.name)}</b>, is played by AI. ${esc(SET.name)} has its own point chart, which you cannot see, just as you cannot share yours.</p>`);
+    const hi = maxTotal(S.user), lo = Math.abs(minTotal(S.user));
+    instructionBlocks(hi, lo).forEach((blk, n) => setTimeout(() => {
+      let html = `<h3>${blk.h}</h3>` + blk.p.map(x => `<p>${esc(x)}</p>`).join('');
+      if (blk.list) html += '<ul>' + blk.list.map(x => `<li>${esc(x)}</li>`).join('') + '</ul>';
+      guideSay(html);
+    }, 400 * (n + 1)));
+    setTimeout(() => {
+      guideSay('<p>Here is your first chart, your Point Structure:</p>' + renderStructure());
+      guideSay('<p>And the second chart, the Robot Task Instructions, with the five options for each issue and your points:</p>' + renderInstr());
+      const b = guideSay(`<p>Both charts stay pinned above the chat. <b>How to agree:</b> choose options on the <b>Current plan</b> card above (or describe them to ${esc(SET.name)} in the chat). An issue is settled when you and ${esc(SET.name)} have chosen the same option. When all six match, tap <b>Agree to this plan</b>.</p><p>When you are ready, the ${S.minutes}-minute timer will start.</p>`);
+      choices(b, ['Ready'], () => startNegotiation());
+    }, 2000);
+  }, 600);
+}
+
+function startNegotiation() {
+  S.phase = 'negotiate'; S.startMs = now(); S.endMs = S.startMs + S.minutes * 60000; S.lastTimeConcession = S.startMs;
+  $('input').disabled = false; $('sendBtn').disabled = false; $('input').focus();
+  showPane('panePlan'); log('negotiation_start', {});
+  S.timerId = setInterval(tick, 500);
+  if (DECIDE()) { renderPlan(); log('sam_opening', { mode: 'decide' }); llmTurn('[The negotiation has started. Open the conversation.]'); return; }
+  const n = Math.max(0, Math.min(ISS().length, +SET.openingIssues || 0));
+  const top = byImportance(S.sam).slice(0, n);
+  top.forEach(i => S.samPos[i.id] = best(S.sam, i.id));
+  renderPlan();
+  let text = n ? tpl('opening', { openingList: top.map(i => `for ${lc(i.id)} I'd like "${optLabel(i.id, S.samPos[i.id])}"`).join(', and ') }) : tpl('openingNone');
+  if (SET.infoSharing === 'volunteer') { const i = byImportance(S.sam)[0]; S.samShared.push(i.id); text += ' ' + tpl('openingVolunteer', { issue: lc(i.id) }); }
+  samSay(text, -300);
+  log('sam_opening', { positions: { ...S.samPos } });
+}
+
+function tick() {
+  const ms = remainingMs(); const m = Math.floor(ms / 60000), s = Math.floor((ms % 60000) / 1000);
+  $('timer').textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  $('timer').classList.toggle('low', ms < 5 * 60000);
+  if (S.phase !== 'negotiate') return;
+  const remMin = ms / 60000;
+  (SET.reminders || []).forEach(r => { if (S.minutes > r && remMin <= r && !S.remindersDone[r]) { S.remindersDone[r] = true; guideSay(`<p>${r} minutes remaining.</p>`); } });
+  if (SET.s1On && !S.s1 && S.firstSelAt && (now() - S.firstSelAt) > scale(3) * 60000) deliverS1();
+  if (SET.s2On && !S.s2 && elapsedMin() >= scale(SET.s2By)) deliverS2();
+  if (!DECIDE() && +SET.tradeAt > 0 && !S.tradeOffered && elapsedMin() >= scale(+SET.tradeAt) && S.userConcessions === 0) offerTrade();
+  if (!DECIDE() && SET.concessionMode === 'time' && now() - S.lastTimeConcession >= scale(+SET.concedeEvery) * 60000) {
+    S.lastTimeConcession = now(); const c = concedeOneStep(null);
+    if (c) { renderPlan(); log('sam_time_concession', c); samSay(tpl('timeConcession', { issue2: lc(c.id), option2: optLabel(c.id, c.k) }), -300); }
+  }
+  if (!DECIDE() && +SET.endgameAt > 0 && !S.endgameDone && remMin <= scale(+SET.endgameAt)) finalOffer();
+  if (ms <= 0) endNegotiation(false);
+}
+
+/* ================================== Teammate engine ================================== */
+const openIssues = () => ISS().filter(i => !isSettled(i.id)).map(i => lc(i.id));
+function stepToward(cur, tgt) { const n = Math.min(+SET.stepSize || 1, Math.abs(tgt - cur)); return cur + Math.sign(tgt - cur) * n; }
+
+function concedeOneStep(excludeId) {
+  const cands = ISS().filter(i => i.id !== excludeId && S.samPos[i.id] != null && S.userSel[i.id] != null && S.samPos[i.id] !== S.userSel[i.id])
+    .sort((a, b) => SET.concessionOrder === 'most' ? range(S.sam, b.id) - range(S.sam, a.id) : range(S.sam, a.id) - range(S.sam, b.id));
+  for (const i of cands) {
+    let k = stepToward(S.samPos[i.id], S.userSel[i.id]);
+    while (k !== S.samPos[i.id]) {                    // shrink the step until it respects the minimum
+      if (total(S.sam, { ...samFull(), [i.id]: k }) >= samLimit()) { S.samPos[i.id] = k; return { id: i.id, k }; }
+      k = k - Math.sign(S.userSel[i.id] - S.samPos[i.id]);
+    }
+  }
+  return null;
+}
+
+function onUserSelect(id, k) {
+  if (S.phase !== 'negotiate') return;
+  const prev = S.userSel[id];
+  S.userSel[id] = k; log('user_select', { issue: id, from: prev ?? null, to: k });
+  if (k == null) { renderPlan(); return; }
+  if (!S.firstSelAt) S.firstSelAt = now();
+  S.convo.push({ role: 'user', content: `[On the plan card, I chose "${optLabel(id, k)}" for ${issueById(id).label}.]` });
+  if (DECIDE()) { renderPlan(); llmTurn(null).then(() => maybeS2(id)); return; }
+  const v = { issue: lc(id), option: optLabel(id, k) };
+  let reply;
+  if (S.pendingTrade && id === S.pendingTrade.needId && k === S.pendingTrade.needK) {
+    const t = S.pendingTrade; S.pendingTrade = null; S.samPos[id] = k;
+    if (total(S.sam, { ...samFull(), [t.giveId]: t.giveK }) >= samLimit()) { S.samPos[t.giveId] = t.giveK; reply = tpl('tradeDone', { issue2: lc(t.giveId), option2: optLabel(t.giveId, t.giveK) }); }
+  }
+  if (!reply) {
+    const conceded = prev != null && pts(S.sam, id, k) > pts(S.sam, id, prev);
+    const reciprocate = conceded && SET.concessionMode === 'reciprocal';
+    if (S.samPos[id] == null) {
+      const b = best(S.sam, id);
+      S.samPos[id] = b;
+      reply = k === b ? tpl('agreeNew', v) : tpl('statePosition', { ...v, samOption: optLabel(id, b) });
+    } else if (S.samPos[id] === k) {
+      reply = tpl('agreeExisting', v);
+      if (conceded) { S.userConcessions++; if (reciprocate) { const c = concedeOneStep(id); if (c) reply += ' ' + tpl('agreeAndReturn', { issue2: lc(c.id), option2: optLabel(c.id, c.k) }); } }
+    } else if (conceded) {
+      S.userConcessions++;
+      const c = reciprocate ? concedeOneStep(id) : null;
+      reply = c ? tpl('concedeReturn', { ...v, issue2: lc(c.id), option2: optLabel(c.id, c.k) }) : tpl('concedeAtLimit', v);
+    } else {
+      reply = tpl('holdFirm', { ...v, samOption: optLabel(id, S.samPos[id]) });
+    }
+  }
+  renderPlan();
+  samSay(reply).then(() => { maybeS1(); maybeS2(id); checkAllMatched(); });
+}
+function checkAllMatched() { if (S.phase === 'negotiate' && allSettled()) samSay(tpl('allMatched'), -600); }
+
+function maybeS1() { if (SET.s1On && !S.s1 && S.firstSelAt && now() - S.firstSelAt > 30000) deliverS1(); }
+function deliverS1() {
+  if (S.s1 || S.phase !== 'negotiate') return;
+  const id = (S.log.find(e => e.type === 'user_select' && e.to != null) || {}).issue || ISS()[0].id;
+  const a = best(S.user, id);
+  let b = S.samPos[id] != null && S.samPos[id] !== a ? S.samPos[id] : (a === 0 ? 4 : 0);
+  if (pts(S.user, id, b) >= pts(S.user, id, a)) b = [0, 1, 2, 3, 4].find(x => pts(S.user, id, x) < pts(S.user, id, a));
+  if (b == null) { S.s1 = { skipped: true }; return; }
+  const text = tpl('s1', { issue: lc(id), option: optLabel(id, a), option2: optLabel(id, b) });
+  S.s1 = { issue: id, a, b, accurate: pts(S.user, id, a) > pts(S.user, id, b), text };
+  log('scripted_S1', S.s1); samSay(text, -300, { scripted: true });
+}
+function s2Issue() {
+  return byImportance(S.sam).filter(i => best(S.sam, i.id) !== best(S.user, i.id) && !isSettled(i.id)
+      && pts(S.user, i.id, best(S.user, i.id)) - pts(S.user, i.id, best(S.sam, i.id)) >= +SET.s2MinGap)[0];
+}
+function maybeS2(changedId) { if (!SET.s2On || S.s2) return; const i = s2Issue(); if (i && i.id === changedId && S.userSel[i.id] !== best(S.sam, i.id)) deliverS2(); }
+function deliverS2() {
+  if (S.s2 || S.phase !== 'negotiate') return;
+  const i = s2Issue(); if (!i) { S.s2 = { skipped: true }; log('scripted_S2_skipped', {}); return; }
+  const sb = best(S.sam, i.id), ub = best(S.user, i.id);
+  S.samPos[i.id] = sb; renderPlan();
+  const text = tpl('s2', { issue: lc(i.id), samOption: optLabel(i.id, sb), userOption: optLabel(i.id, ub) });
+  S.s2 = { issue: i.id, samOpt: sb, userOpt: ub, gap: pts(S.user, i.id, ub) - pts(S.user, i.id, sb), accurate: false, text };
+  log('scripted_S2', S.s2); samSay(text, -300, { scripted: true });
+}
+function offerTrade() {
+  S.tradeOffered = true;
+  const open = ISS().filter(i => !isSettled(i.id)); if (open.length < 2) return;
+  const need = [...open].sort((a, b) => range(S.sam, b.id) - range(S.sam, a.id))[0];
+  const give = [...open].filter(i => i.id !== need.id).sort((a, b) => range(S.sam, a.id) - range(S.sam, b.id))[0];
+  const giveK = S.userSel[give.id] != null ? S.userSel[give.id] : 2;
+  S.pendingTrade = { needId: need.id, needK: best(S.sam, need.id), giveId: give.id, giveK };
+  log('sam_trade_offer', S.pendingTrade);
+  samSay(tpl('trade', { issue: lc(need.id), option: optLabel(need.id, S.pendingTrade.needK), issue2: lc(give.id), option2: optLabel(give.id, giveK) }), -300);
+}
+function finalOffer() {
+  S.endgameDone = true; if (S.phase !== 'negotiate' || allSettled()) return;
+  const order = byImportance(S.sam, false); const plan = samFull();
+  for (const i of order) {
+    if (isSettled(i.id) || S.userSel[i.id] == null) continue;
+    while (plan[i.id] !== S.userSel[i.id]) {
+      const step = plan[i.id] + Math.sign(S.userSel[i.id] - plan[i.id]);
+      if (total(S.sam, { ...plan, [i.id]: step }) >= samLimit()) plan[i.id] = step; else break;
+    }
+  }
+  ISS().forEach(i => S.samPos[i.id] = plan[i.id]);
+  renderPlan(); log('sam_final_offer', { plan });
+  samSay(tpl('finalOffer', { plan: ISS().map(i => `${i.label}: "${optLabel(i.id, plan[i.id])}"`).join('; ') }), -300);
+}
+
+/* ================================== Chat replies ================================== */
+const kw = {
+  priority: /(important|matters?|care (a lot )?about|priority|priorities|really (want|need)|most|for me)/i,
+  askSam: /(what about you|what do you (want|need|care|prefer|think)|your priorit|what('?s| is) important to you|what matters (most )?to you|which .*matter.* you)/i,
+  ai: /(are you (an? )?(ai|bot|robot|human|real))/i,
+  points: /(how many points|your points|points (do|would) you)/i,
+  agree: /^\s*(ok(ay)?|deal|agreed?|sounds good|yes|sure|great|perfect)[.! ]*$/i,
+  greet: /^\s*(hi|hey|hello|hiya|yo)\b/i,
+};
+function mentionedIssue(text) { const t = text.toLowerCase(); return ISS().find(i => t.includes(i.label.toLowerCase().replace("robot's ", '')) || t.includes(i.id)); }
+function mentionedOption(text) { const t = text.toLowerCase(); for (const i of ISS()) for (let k = 0; k < 5; k++) if (t.includes(i.options[k].toLowerCase())) return { id: i.id, k }; return null; }
+function samReply(text) {
+  if (DECIDE()) return llmTurn(null);
+  if (kw.ai.test(text)) return samSay(tpl('aiConfirm'));
+  if (kw.points.test(text)) return samSay(tpl('noPoints'));
+  const opt = mentionedOption(text);
+  const asking = kw.askSam.test(text);
+  const sharing = kw.priority.test(text) && !asking && (mentionedIssue(text) || /\bi\b|\bme\b|\bmy\b/i.test(text));
+  if (sharing) {
+    S.sharedByUser++; log('user_shared_priority', { text });
+    if (SET.infoSharing === 'never') return samSay(tpl('neverShare'));
+    const next = byImportance(S.sam).filter(i => !S.samShared.includes(i.id))[0];
+    if (next && SET.infoSharing !== 'never') {
+      S.samShared.push(next.id); log('sam_shared_priority', { issue: next.id });
+      const key = S.samShared.length === 1 ? 'sharePriority1' : S.samShared.length === 2 ? 'sharePriority2' : 'sharePriority3';
+      return samSay(tpl(key, { issue: lc(next.id) }));
+    }
+  }
+  if (asking) {
+    if (SET.infoSharing === 'volunteer') { const [a, b] = byImportance(S.sam); [a, b].forEach(i => { if (!S.samShared.includes(i.id)) S.samShared.push(i.id); }); log('sam_shared_priority', { issue: a.id, issue2: b.id }); return samSay(tpl('answerPriorities', { issue: lc(a.id), issue2: lc(b.id) })); }
+    return samSay(tpl(SET.infoSharing === 'never' ? 'neverShare' : 'deflect'));
+  }
+  if (opt) {
+    const v = { issue: lc(opt.id), option: optLabel(opt.id, opt.k) };
+    if (S.samPos[opt.id] === opt.k) return samSay(tpl('textAgreeOption', v));
+    if (S.samPos[opt.id] == null) {
+      const b = best(S.sam, opt.id); S.samPos[opt.id] = b; renderPlan();
+      return samSay(b === opt.k ? tpl('agreeNew', v) : tpl('statePosition', { ...v, samOption: optLabel(opt.id, b) }));
+    }
+    return samSay(tpl('textHold', { ...v, samOption: optLabel(opt.id, S.samPos[opt.id]) }));
+  }
+  if (kw.agree.test(text)) return samSay(allSettled() ? tpl('allMatched') : tpl('stillOpen', { open: openIssues().join(', ') }));
+  if (kw.greet.test(text) && S.log.filter(e => e.type === 'message' && e.speaker === 'you').length <= 1) return samSay(tpl('greet'));
+  const open = openIssues();
+  return samSay(open.length ? tpl('generic', { open: open[0] }) : tpl('allMatched'));
+}
+function send() {
+  const v = $('input').value.trim(); if (!v || S.phase !== 'negotiate') return;
+  $('input').value = ''; addMsg('you', esc(v)); samReply(v).then(() => maybeS1());
+}
+$('sendBtn').onclick = send;
+$('input').addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+
+/* ================================== End of negotiation ================================== */
+function onAgree() { if (!allSettled() || S.phase !== 'negotiate') return; addMsg('you', 'I agree to this plan.'); endNegotiation(true); }
+function endNegotiation(agreed) {
+  if (S.phase !== 'negotiate') return;
+  clearInterval(S.timerId); S.agreed = agreed; S.finalPlan = agreed ? { ...S.userSel } : null;
+  S.phase = agreed ? 'agreed' : 'ended';
+  $('input').disabled = true; $('sendBtn').disabled = true; renderPlan();
+  log('negotiation_end', { agreed, plan: S.finalPlan, userPoints: agreed ? total(S.user, S.finalPlan) : 0, samPoints: agreed ? total(S.sam, S.finalPlan) : 0 });
+  const go = () => {
+    S.phase = 'questions';
+    guideSay(agreed ? `<p>You and ${esc(SET.name)} reached an agreement. Your points for this plan: <b>${fmt(total(S.user, S.finalPlan))}</b>.</p>`
+                    : '<p>Time is up, and the two of you did not agree on all six issues, so no agreement was reached.</p>');
+    setTimeout(startQuestions, 900);
+  };
+  if (agreed) samSay(tpl('deal'), -500).then(go); else go();
+}
+
+/* ================================== Questions ================================== */
+function buildQuestions() {
+  const N = esc(SET.name);
+  const q = ISS().map(i => ({ id: 'C_' + i.id, comp: 'Defining criteria and priorities', text: `Which option for <b>${esc(lc(i.id))}</b> do you think ${N} wanted most?`,
+    options: i.options, key: k => pts(S.sam, i.id, k) === Math.max(...P(S.sam, i.id)) }));
+  const imp = byImportance(S.sam);
+  q.push({ id: 'C7', comp: 'Defining criteria and priorities', text: `Which issue do you think mattered <b>most</b> to ${N}?`, options: ISS().map(i => i.label), key: k => range(S.sam, ISS()[k].id) === range(S.sam, imp[0].id) });
+  q.push({ id: 'C8', comp: 'Defining criteria and priorities', text: `Which issue do you think mattered <b>second most</b> to ${N}?`, options: ISS().map(i => i.label), key: k => range(S.sam, ISS()[k].id) === range(S.sam, imp[1].id) });
+  if (S.s1 && !S.s1.skipped) q.push({ id: 'C9', comp: 'Evaluating AI claims', text: `During the negotiation, ${N} said:<br><i>“${esc(S.s1.text)}”</i><br>Was that accurate for you?`, options: ['Accurate', 'Not accurate', 'Not sure'], key: k => k === (S.s1.accurate ? 0 : 1) });
+  if (S.s2 && !S.s2.skipped) q.push({ id: 'C10', comp: 'Evaluating AI claims', text: `During the negotiation, ${N} said:<br><i>“${esc(S.s2.text)}”</i><br>Was that accurate for you?`, options: ['Accurate', 'Not accurate', 'Not sure'], key: k => k === 1 });
+  return q;
+}
+function startQuestions() { S.questions = buildQuestions(); S.qIndex = 0; guideSay(`<p>Thank you. Now ${S.questions.length} short questions about the negotiation. Tap one answer for each.</p>`); setTimeout(askNext, 700); }
+function askNext() {
+  if (S.qIndex >= S.questions.length) return closing();
+  const q = S.questions[S.qIndex]; const shownAt = now();
+  const b = guideSay(`<p>${S.qIndex + 1}. ${q.text}</p>`);
+  choices(b, q.options, (k, lab) => {
+    const correct = !!q.key(k);
+    S.answers.push({ id: q.id, competency: q.comp, answer: lab, index: k, correct, rtMs: now() - shownAt });
+    log('answer', { id: q.id, answer: lab, correct }); S.qIndex++; setTimeout(askNext, 350);
+  });
+}
+function closing() {
+  S.phase = 'done';
+  let html = `<p>That completes the task. Thank you!</p><p><b>About your teammate:</b> ${esc(SET.name)} was played by AI following fixed rules.`;
+  if (S.s2 && !S.s2.skipped) html += ` One of ${esc(SET.name)}'s statements was scripted to be inaccurate: <i>“${esc(S.s2.text)}”</i> The two options were not worth about the same to you.`;
+  const b = guideSay(html + '</p>');
+  if (!LOCKED) choices(b, ['Show results (researcher view)'], () => showResults());
+  else choices(b, ['Download my log (JSON)'], () => downloadLog());
+  log('done', {});
+}
+
+/* ================================== Results ================================== */
+function enumerate() {
+  const ids = ISS().map(i => i.id); const all = [];
+  const rec = (d, plan) => { if (d === ids.length) { all.push({ u: total(S.user, plan), s: total(S.sam, plan) }); return; } for (let k = 0; k < 5; k++) { plan[ids[d]] = k; rec(d + 1, plan); } };
+  rec(0, {}); return all;
+}
+function showResults() {
+  const all = enumerate(); const maxJoint = Math.max(...all.map(x => x.u + x.s));
+  let rows = '';
+  if (S.agreed) {
+    const u = total(S.user, S.finalPlan), s = total(S.sam, S.finalPlan), j = u + s;
+    const dominated = all.some(x => x.u >= u && x.s >= s && (x.u > u || x.s > s));
+    rows += `<tr><td>Test-taker points</td><td class="num">${fmt(u)}</td></tr><tr><td>${esc(SET.name)}'s points</td><td class="num">${fmt(s)}</td></tr>
+      <tr><td>Joint points</td><td class="num">${fmt(j)}</td></tr><tr><td>Maximum joint points available</td><td class="num">${fmt(maxJoint)}</td></tr>
+      <tr><td>Pareto efficiency (joint ÷ maximum)</td><td class="num">${(j / maxJoint).toFixed(2)}</td></tr><tr><td>Agreement on the Pareto frontier?</td><td class="num">${dominated ? 'No' : 'Yes'}</td></tr>`;
+  } else rows += '<tr><td>Agreement</td><td class="num">None</td></tr>';
+  rows += `<tr><td>Question points</td><td class="num">${S.answers.filter(a => a.correct).length} of ${S.answers.length}</td></tr>
+    <tr><td>Test-taker concessions (moves toward the teammate)</td><td class="num">${S.userConcessions}</td></tr><tr><td>Priorities shared by test-taker</td><td class="num">${S.sharedByUser}</td></tr>`;
+  const ans = S.answers.map(a => `<tr><td>${a.id}</td><td>${esc(a.answer)}</td><td>${a.correct ? '✓' : '✗'}</td><td class="num">${(a.rtMs / 1000).toFixed(1)} s</td></tr>`).join('');
+  const b = guideSay(`<div class="results"><h3>Results (researcher view)</h3><table class="chart">${rows}</table>
+    <h3 style="margin-top:10px">Answers</h3><table class="chart"><tr><th>Item</th><th>Answer</th><th>Key</th><th>Time</th></tr>${ans}</table></div>`);
+  choices(b, ['Download log (JSON)', 'Start again'], k => k === 0 ? downloadLog() : location.reload());
+}
+function download(name, obj) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove();
+}
+const downloadLog = () => download('robot-negotiation-log.json', { settings: SET, userRole: S.user, samRole: S.sam, finalPlan: S.finalPlan, answers: S.answers, s1: S.s1, s2: S.s2, log: S.log });
+
+/* ================================== Prototype controls ================================== */
+$('gearBtn').onclick = () => { $('drawer').classList.toggle('show'); updateDrawer(); };
+function updateDrawer() {
+  $('drawerInfo').innerHTML = S.user ? `<p>Test-taker: <b>${S.user}</b> · ${esc(SET.name)}: <b>${S.sam}</b><br>Minimum it will accept: <b>${fmt(samLimit())}</b> · Its current full position: <b>${fmt(total(S.sam, samFull()))}</b><br>S1: ${S.s1 ? (S.s1.skipped ? 'skipped' : 'delivered') : SET.s1On ? 'pending' : 'off'} · S2: ${S.s2 ? (S.s2.skipped ? 'skipped' : 'delivered') : SET.s2On ? 'pending' : 'off'}</p>` : '<p>Start the task first.</p>';
+  if (S.sam) $('samTable').innerHTML = `<table class="chart"><tr><th>Issue (type)</th><th>Teammate's points, options 1–5</th></tr>${ISS().map(i => `<tr><td>${esc(i.label)} (${i.type})</td><td>${P(S.sam, i.id).map(fmt).join(' / ')}</td></tr>`).join('')}</table>`;
+}
+$('ctlSkip5').onclick = () => { if (S.phase === 'negotiate') { S.minutes = Math.max(S.minutes, 30); S.endMs = now() + 5 * 60000 - 1000; } };
+$('ctlEnd').onclick = () => endNegotiation(false);
+$('ctlSam').onclick = () => { updateDrawer(); $('samTable').classList.toggle('hidden'); };
+$('ctlLog').onclick = downloadLog;
+
+/* ================================== Settings panel ================================== */
+const FIELDS = ['infoSharing', 'openingIssues', 'concessionMode', 'concedeEvery', 'concessionOrder', 'stepSize', 'limitMode', 'limitValue', 'tradeAt', 'endgameAt', 'delay', 's1On', 's2On', 's2By', 's2MinGap', 'name'];
+function buildTemplateFields() {
+  $('tplFields').innerHTML = Object.keys(DEFAULT_TEMPLATES).map(k => `<div class="tpl"><label for="t_${k}">${TEMPLATE_LABELS[k] || k}</label><textarea id="t_${k}" rows="2"></textarea></div>`).join('');
+}
+function fillForm() {
+  FIELDS.forEach(f => { const el = $('s_' + f); if (el) el.value = String(SET[f]); });
+  $('s_reminders').value = (SET.reminders || []).join(', ');
+  Object.keys(DEFAULT_TEMPLATES).forEach(k => $('t_' + k).value = SET.templates[k] ?? DEFAULT_TEMPLATES[k]);
+  $('s_task').value = JSON.stringify(SET.task, null, 1);
+  ['mode', 'provider', 'endpoint', 'model', 'temperature', 'maxTokens', 'systemPrompt'].forEach(k => $('l_' + k).value = SET.llm[k]);
+  $('l_exactScripted').value = String(SET.llm.exactScripted); $('l_key').value = API_KEY;
+  updateModeText(); $('l_status').textContent = ''; $('l_previewBox').classList.add('hidden');
+  $('taskErr').textContent = ''; $('settingsMsg').textContent = '';
+}
+function validateTask(t) {
+  if (!t || !Array.isArray(t.issues) || t.issues.length !== 6) throw new Error('Task values need exactly six issues.');
+  for (const i of t.issues) {
+    if (!i.id || !i.label || !Array.isArray(i.options) || i.options.length !== 5) throw new Error(`Issue "${i.label || i.id}" needs an id, a label, and five options.`);
+    for (const r of ['P1', 'P2']) { const a = t.points?.[r]?.[i.id]; if (!Array.isArray(a) || a.length !== 5 || a.some(x => typeof x !== 'number')) throw new Error(`${r} needs five numbers for "${i.id}".`); }
+  }
+  return t;
+}
+function readForm() {
+  const n = { ...SET, templates: { ...SET.templates } };
+  FIELDS.forEach(f => { const el = $('s_' + f); if (!el) return; const v = el.value;
+    n[f] = ['openingIssues', 'concedeEvery', 'stepSize', 'limitValue', 'tradeAt', 'endgameAt', 'delay', 's2By', 's2MinGap'].includes(f) ? +v : (f === 's1On' || f === 's2On') ? v === 'true' : v; });
+  n.reminders = $('s_reminders').value.split(',').map(x => +x.trim()).filter(x => x > 0);
+  Object.keys(DEFAULT_TEMPLATES).forEach(k => n.templates[k] = $('t_' + k).value);
+  n.task = validateTask(JSON.parse($('s_task').value));
+  n.llm = { mode: $('l_mode').value, provider: $('l_provider').value, endpoint: $('l_endpoint').value.trim(), model: $('l_model').value.trim(),
+    temperature: +$('l_temperature').value, maxTokens: +$('l_maxTokens').value, exactScripted: $('l_exactScripted').value === 'true', systemPrompt: $('l_systemPrompt').value };
+  API_KEY = $('l_key').value.trim();
+  return n;
+}
+function applySettings(n, msg) { SET = n; refreshStartScreen(); if (msg) $('settingsMsg').textContent = msg; }
+function refreshStartScreen() {
+  $('aboutName').textContent = SET.name;
+  const share = { reciprocal: 'shares priorities only after you do', volunteer: 'states its top priority at the start and answers when asked', never: 'never shares its priorities' }[SET.infoSharing];
+  const conc = { reciprocal: 'concedes after each move you make toward it', time: `concedes every ${SET.concedeEvery} minutes regardless`, none: 'holds firm until its final offer' }[SET.concessionMode];
+  const scripted = [SET.s1On && 'one accurate', SET.s2On && 'one inaccurate'].filter(Boolean);
+  $('aboutRules').textContent = `${SET.name}'s offers come from fixed rules: it ${share}, ${conc} (first on the issues it cares ${SET.concessionOrder === 'most' ? 'most' : 'least'} about), has a minimum it will not go below` +
+    (+SET.endgameAt > 0 ? `, and makes a final offer when ${SET.endgameAt} minutes remain.` : '.') + (scripted.length ? ` It makes ${scripted.length === 2 ? 'two scripted statements about your points: one accurate, one not' : 'one scripted statement about your points (' + scripted[0] + ')'}.` : '');
+  const changed = JSON.stringify(SET) !== JSON.stringify(DEFAULT_SETTINGS);
+  const modelNote = SET.llm.mode === 'off' ? '' : ` Language model: ${SET.llm.model} (${SET.llm.mode === 'wording' ? 'writes the messages' : 'decides offers, experimental'})${API_KEY ? ', key entered' : ', no key entered: the endpoint must be a proxy, or the rules and templates are used instead'}.`;
+  $('settingsStatus').textContent = LOCKED ? '' : (changed ? 'Custom teammate settings are in use.' : 'Default teammate settings are in use.') + modelNote;
+}
+function openSettings() { fillForm(); $('modalBack').classList.add('show'); $('settingsModal').classList.add('show'); }
+function closeSettings() { $('modalBack').classList.remove('show'); $('settingsModal').classList.remove('show'); }
+$('openSettings').onclick = openSettings; $('closeSettings').onclick = closeSettings; $('modalBack').onclick = closeSettings;
+$('applySettings').onclick = () => { try { applySettings(readForm(), 'Applied. The next run will use these settings.'); } catch (e) { $('taskErr').textContent = e.message; $('settingsMsg').textContent = 'Not applied: ' + e.message; } };
+$('resetSettings').onclick = () => { applySettings(JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), 'Reset to defaults.'); fillForm(); $('settingsMsg').textContent = 'Reset to defaults.'; };
+$('saveSettings').onclick = () => { try { const n = readForm(); applySettings(n); download('teammate-settings.json', n); $('settingsMsg').textContent = 'Saved as teammate-settings.json.'; } catch (e) { $('settingsMsg').textContent = 'Not saved: ' + e.message; } };
+$('loadSettingsBtn').onclick = () => $('loadSettingsFile').click();
+$('loadSettingsFile').onchange = e => {
+  const f = e.target.files[0]; if (!f) return; const r = new FileReader();
+  r.onload = () => { try { const n = mergeSettings(JSON.parse(r.result)); applySettings(n); fillForm(); $('settingsMsg').textContent = `Loaded ${f.name}.`; } catch (err) { $('settingsMsg').textContent = 'Could not load: ' + err.message; } };
+  r.readAsText(f); e.target.value = '';
+};
+function mergeSettings(obj) {
+  const n = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+  Object.assign(n, obj || {}); n.templates = { ...DEFAULT_TEMPLATES, ...(obj && obj.templates || {}) };
+  n.llm = { ...DEFAULT_LLM, ...(obj && obj.llm || {}) }; delete n.llm.apiKey;
+  n.task = validateTask(obj && obj.task ? obj.task : n.task); return n;
+}
+function encodeSettings(n) { return btoa(unescape(encodeURIComponent(JSON.stringify(n)))); }
+function decodeSettings(s) { return JSON.parse(decodeURIComponent(escape(atob(s)))); }
+function linkFor(n, lock) { return location.href.split('#')[0] + '#s=' + encodeSettings(n) + (lock ? '&lock=1' : ''); }
+async function copyText(t) { try { await navigator.clipboard.writeText(t); return true; } catch { window.prompt('Copy this link:', t); return false; } }
+$('copyLink').onclick = async () => { try { const n = readForm(); applySettings(n); await copyText(linkFor(n, false)); $('settingsMsg').textContent = 'Link copied. It opens the prototype with these settings.'; } catch (e) { $('settingsMsg').textContent = 'Not copied: ' + e.message; } };
+$('copyLockedLink').onclick = async () => { try { const n = readForm(); applySettings(n); await copyText(linkFor(n, true)); $('settingsMsg').textContent = 'Participant link copied. It hides the settings, prototype controls, and researcher view.'; } catch (e) { $('settingsMsg').textContent = 'Not copied: ' + e.message; } };
+
+function updateModeText() {
+  const m = $('l_mode').value;
+  $('l_modeText').textContent = m === 'off' ? '(Nothing: the model is off.)' : MODE_TEXT[m].replace('{ids}', ISS().map(i => i.id).join(', '));
+}
+$('l_mode').onchange = updateModeText;
+$('l_provider').onchange = () => { const p = $('l_provider').value; if (Object.values(ENDPOINTS).includes($('l_endpoint').value.trim()) || !$('l_endpoint').value.trim()) $('l_endpoint').value = ENDPOINTS[p]; };
+$('l_defaultPrompt').onclick = () => { $('l_systemPrompt').value = DEFAULT_SYSTEM_PROMPT; $('l_status').textContent = 'Default prompt restored (click Apply to use it).'; };
+$('l_preview').onclick = () => {
+  try {
+    const n = readForm(); const keep = SET; const keepS = S; SET = n;
+    if (!S.sam) { S = freshState(); S.user = 'P1'; S.sam = 'P2'; }
+    const txt = fillPrompt() + (n.llm.mode === 'off' ? '' : '\n\n' + MODE_TEXT[n.llm.mode].replace('{ids}', ISS().map(i => i.id).join(', ')));
+    SET = keep; S = keepS;
+    $('l_previewBox').textContent = txt; $('l_previewBox').classList.remove('hidden');
+    $('l_status').textContent = 'Preview uses the current run, or Partner 2\'s table as the teammate if no run has started.';
+  } catch (e) { $('l_status').textContent = 'Preview failed: ' + e.message; }
+};
+$('l_test').onclick = async () => {
+  const keep = SET;
+  try {
+    SET = readForm(); $('l_status').textContent = 'Testing…';
+    const out = await callModel('Reply with the single word OK.', [{ role: 'user', content: 'Connection test.' }]);
+    $('l_status').textContent = 'Connected. The model replied: ' + out.slice(0, 80);
+  } catch (e) { $('l_status').textContent = 'Connection failed: ' + String(e).slice(0, 300); }
+  finally { SET = keep; }
+};
+
+/* ---- Read settings from the link, if any ---- */
+(function init() {
+  buildTemplateFields();
+  const h = location.hash.slice(1); const params = Object.fromEntries(h.split('&').filter(Boolean).map(x => { const i = x.indexOf('='); return i < 0 ? [x, '1'] : [x.slice(0, i), x.slice(i + 1)]; }));
+  if (params.s) { try { SET = mergeSettings(decodeSettings(params.s)); } catch (e) { console.warn('Could not read settings from link', e); } }
+  if (params.lock) {
+    LOCKED = true;
+    ['openSettings', 'gearBtn', 'banner', 'startAbout'].forEach(id => $(id).classList.add('hidden'));
+    $('roleSelect').value = 'random'; $('timeSelect').value = '30'; $('startOptions').classList.add('hidden');
+  }
+  refreshStartScreen();
+})();
+</script>
+</body>
+</html>
